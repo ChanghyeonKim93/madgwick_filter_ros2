@@ -1,7 +1,8 @@
 #ifndef MADGWICK_FILTER_H_
 #define MADGWICK_FILTER_H_
 
-#include "Eigen/Dense"
+#include "bridge.h"
+#include "eigen3/Eigen/Dense"
 
 namespace madgwick_filter {
 
@@ -17,7 +18,7 @@ class MadgwickFilter {
 
   ~MadgwickFilter();
 
-  void Update(const Vec3& linear_acceleration, const Vec3& angular_velocity);
+  void Update(const bridge::Imu& imu_data);
 
  private:
   const Parameters parameters_;

@@ -8,6 +8,7 @@
 #include "nav_msgs/msg/odometry.hpp"
 #include "sensor_msgs/msg/imu.hpp"
 
+#include "bridge.h"
 #include "madgwick_filter.h"
 
 using OdometryMsg = nav_msgs::msg::Odometry;
@@ -22,11 +23,33 @@ class MadgwickFilterNode : public rclcpp::Node {
     if (!LoadParameters(&parameters))
       throw std::runtime_error("wrong parameters");
     filter_ = std::make_unique<madgwick_filter::MadgwickFilter>(parameters);
+
+    PrepareSubscribers();
+    PreparePublishers();
   }
 
   ~MadgwickFilterNode() {}
 
   bool LoadParameters(madgwick_filter::Parameters* params) { return true; }
+  void PrepareSubscribers() {
+    imu_subscriber_ = this->create_subscription<ImuMsg>(
+        "/imu/data", rclcpp::SensorDataQoS(),
+        std::bind(&MadgwickFilterNode::CallbackImu, this,
+                  std::placeholders::_1));
+  }
+  void PreparePublishers() {}
+  void CallbackImu(const ImuMsg::SharedPtr msg) {
+    madgwick_filter::bridge::Imu imu_data;
+    imu_data.time = msg->header.stamp.sec + msg->header.stamp.nanosec * 1e-9;
+    imu_data.linear_acceleration.x = msg->linear_acceleration.x;
+    imu_data.linear_acceleration.y = msg->linear_acceleration.y;
+    imu_data.linear_acceleration.z = msg->linear_acceleration.z;
+    imu_data.angular_velocity.x = msg->angular_velocity.x;
+    imu_data.angular_velocity.y = msg->angular_velocity.y;
+    imu_data.angular_velocity.z = msg->angular_velocity.z;
+    filter_->Update(imu_data);
+  }
+  void CallbackTimer() {}
 
  private:
   // Subscibers
