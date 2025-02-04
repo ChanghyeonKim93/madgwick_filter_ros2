@@ -37,10 +37,14 @@ class MadgwickFilterNode : public rclcpp::Node {
         std::bind(&MadgwickFilterNode::CallbackImu, this,
                   std::placeholders::_1));
   }
-  void PreparePublishers() {}
+  void PreparePublishers() {
+    pose_publisher_ =
+        this->create_publisher<OdometryMsg>("~/pose", rclcpp::SensorDataQoS());
+  }
   void CallbackImu(const ImuMsg::SharedPtr msg) {
     madgwick_filter::bridge::Imu imu_data;
-    imu_data.time = msg->header.stamp.sec + msg->header.stamp.nanosec * 1e-9;
+    imu_data.time = static_cast<double>(msg->header.stamp.sec) +
+                    msg->header.stamp.nanosec * 1e-9;
     imu_data.linear_acceleration.x = msg->linear_acceleration.x;
     imu_data.linear_acceleration.y = msg->linear_acceleration.y;
     imu_data.linear_acceleration.z = msg->linear_acceleration.z;
@@ -48,6 +52,23 @@ class MadgwickFilterNode : public rclcpp::Node {
     imu_data.angular_velocity.y = msg->angular_velocity.y;
     imu_data.angular_velocity.z = msg->angular_velocity.z;
     filter_->Update(imu_data);
+
+    const auto bridge_orietation = filter_->GetOrientation();
+    OdometryMsg odom_msg;
+    odom_msg.header.frame_id = "map";
+    odom_msg.header.stamp = now();
+    odom_msg.pose.pose.position.x = 0.0;
+    odom_msg.pose.pose.position.y = 0.0;
+    odom_msg.pose.pose.position.z = 0.0;
+    odom_msg.pose.pose.orientation.w = bridge_orietation.w;
+    odom_msg.pose.pose.orientation.x = bridge_orietation.x;
+    odom_msg.pose.pose.orientation.y = bridge_orietation.y;
+    odom_msg.pose.pose.orientation.z = bridge_orietation.z;
+    // odom_msg.pose.pose.orientation.w = msg->orientation.w;
+    // odom_msg.pose.pose.orientation.x = msg->orientation.x;
+    // odom_msg.pose.pose.orientation.y = msg->orientation.y;
+    // odom_msg.pose.pose.orientation.z = msg->orientation.z;
+    pose_publisher_->publish(odom_msg);
   }
   void CallbackTimer() {}
 
