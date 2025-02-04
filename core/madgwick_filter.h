@@ -18,6 +18,15 @@ struct Quaternion {
   double y{0.0};
   double z{0.0};
 
+  Quaternion() {}
+  Quaternion(const Quaternion& rhs) : w(rhs.w), x(rhs.x), y(rhs.y), z(rhs.z) {}
+  void operator=(const Quaternion& rhs) {
+    w = rhs.w;
+    x = rhs.x;
+    y = rhs.y;
+    z = rhs.z;
+  }
+
   Quaternion inverse() {
     Quaternion inv_q;
     inv_q.w = w;
