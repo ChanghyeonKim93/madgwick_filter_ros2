@@ -1,6 +1,7 @@
 #ifndef MADGWICK_FILTER_H_
 #define MADGWICK_FILTER_H_
 
+#include <iostream>
 #include <queue>
 
 #include "bridge.h"
@@ -18,15 +19,17 @@ struct Quaternion {
   double y{0.0};
   double z{0.0};
 
-  Quaternion() {}
+  Quaternion() : w(1.0), x(0.0), y(0.0), z(0.0) {}
+  Quaternion(const double _w, const double _x, const double _y, const double _z)
+      : w(_w), x(_x), y(_y), z(_z) {}
   Quaternion(const Quaternion& rhs) : w(rhs.w), x(rhs.x), y(rhs.y), z(rhs.z) {}
-  void operator=(const Quaternion& rhs) {
+  Quaternion& operator=(const Quaternion& rhs) {
     w = rhs.w;
     x = rhs.x;
     y = rhs.y;
     z = rhs.z;
+    return *this;
   }
-
   Quaternion inverse() {
     Quaternion inv_q;
     inv_q.w = w;
@@ -36,12 +39,17 @@ struct Quaternion {
     return inv_q;
   }
   void normalize() {
+    std::cerr << "before normalize: " << w << " " << x << " " << y << " " << z
+              << std::endl;
     const double norm = std::sqrt(w * w + x * x + y * y + z * z);
     const double inv_norm = 1.0 / norm;
     w *= inv_norm;
     x *= inv_norm;
     y *= inv_norm;
     z *= inv_norm;
+
+    std::cerr << "after normalize: " << w << " " << x << " " << y << " " << z
+              << std::endl;
   }
   Quaternion operator+(const Quaternion& rhs) const {
     Quaternion res;
@@ -64,7 +72,6 @@ struct Quaternion {
     res.x = w * rhs.x + x * rhs.w + y * rhs.z - z * rhs.y;
     res.y = w * rhs.y - x * rhs.z + y * rhs.w + z * rhs.x;
     res.z = w * rhs.z + x * rhs.y - y * rhs.x + z * rhs.w;
-    res.normalize();
     return res;
   }
   Quaternion operator*(const double scalar) const {

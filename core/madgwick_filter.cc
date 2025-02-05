@@ -22,7 +22,6 @@ void MadgwickFilter::Update(const bridge::Imu& bridge_imu) {
   }
 
   const auto wm = imu.angular_velocity - gyro_bias_;
-  // const auto wm = imu.angular_velocity;
   Quaternion o_w;
   o_w.w = 0.0;
   o_w.x = wm.x();
@@ -34,28 +33,10 @@ void MadgwickFilter::Update(const bridge::Imu& bridge_imu) {
     prev_time_ = imu.time;
     return;
   }
+
   const double dt = imu.time - prev_time_;
-
-  Orientation a{Orientation::Identity()};
-  Orientation b;
-  b.w() = 0.0;
-  b.x() = wm.x();
-  b.y() = wm.y();
-  b.z() = wm.z();
-
-  Orientation c = a * b;
-  std::cerr << "c: " << c.coeffs().transpose() << std::endl;
-
-  std::cerr << "wm: " << wm.transpose() << std::endl;
-
-  std::cerr << "dt: " << dt << std::endl;
   Quaternion dq_w;
-  dq_w = (orientation_ * o_w);
-  // dq_w *= 0.5;
-  std::cerr << "orientation_: " << orientation_.w << " " << orientation_.x
-            << " " << orientation_.y << " " << orientation_.z << std::endl;
-  std::cerr << "dq_w: " << dq_w.w << " " << dq_w.x << " " << dq_w.y << " "
-            << dq_w.z << std::endl;
+  dq_w = (orientation_ * o_w) * 0.5;
 
   Quaternion q_w;
   q_w = (orientation_ + (dq_w * dt));
