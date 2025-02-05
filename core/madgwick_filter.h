@@ -31,32 +31,19 @@ struct Quaternion {
     return *this;
   }
   Quaternion inverse() {
-    Quaternion inv_q;
-    inv_q.w = w;
-    inv_q.x = -x;
-    inv_q.y = -y;
-    inv_q.z = -z;
+    Quaternion inv_q(w, -x, -y, -z);
     return inv_q;
   }
   void normalize() {
-    std::cerr << "before normalize: " << w << " " << x << " " << y << " " << z
-              << std::endl;
     const double norm = std::sqrt(w * w + x * x + y * y + z * z);
     const double inv_norm = 1.0 / norm;
     w *= inv_norm;
     x *= inv_norm;
     y *= inv_norm;
     z *= inv_norm;
-
-    std::cerr << "after normalize: " << w << " " << x << " " << y << " " << z
-              << std::endl;
   }
   Quaternion operator+(const Quaternion& rhs) const {
-    Quaternion res;
-    res.w = w + rhs.w;
-    res.x = x + rhs.x;
-    res.y = y + rhs.y;
-    res.z = z + rhs.z;
+    Quaternion res(w + rhs.w, x + rhs.x, y + rhs.y, z + rhs.z);
     return res;
   }
   Quaternion& operator+=(const Quaternion& rhs) {
@@ -75,11 +62,7 @@ struct Quaternion {
     return res;
   }
   Quaternion operator*(const double scalar) const {
-    Quaternion res;
-    res.w = w * scalar;
-    res.x = x * scalar;
-    res.y = y * scalar;
-    res.z = z * scalar;
+    Quaternion res(w * scalar, x * scalar, y * scalar, z * scalar);
     return res;
   }
   Quaternion& operator*=(const Quaternion& rhs) {
