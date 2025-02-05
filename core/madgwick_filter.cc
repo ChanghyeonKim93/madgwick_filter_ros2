@@ -49,17 +49,41 @@ void MadgwickFilter::Update(const bridge::Imu& bridge_imu) {
   if (std::abs(am.norm() - kGravitationalAcceleration) < 1e-1)
     update_by_acceleration = true;
 
-  Quaternion q_a;
-  q_a.w = 0.0;
-  q_a.x = am.x();
-  q_a.y = am.y();
-  q_a.z = am.z();
+  if (update_by_acceleration) {
+    std::cerr << "UPDATE Acc\n";
+    Quaternion q_a;
+    q_a.w = 0.0;
+    q_a.x = am.x();
+    q_a.y = am.y();
+    q_a.z = am.z();
 
-  Quaternion gradient;
+    const auto& q = orientation_;
+    Vec3 fg;
+    fg(0) = 2.0 * (q.x * q.z - q.w * q.y) - am.x() / 9.81;
+    fg(1) = 2.0 * (q.w * q.x + q.y * q.z) - am.y() / 9.81;
+    fg(2) = 2.0 * (0.5 - q.x * q.x - q.y * q.y) - am.z() / 9.81;
+    Eigen::Matrix<double, 3, 4> Jg;
+    Jg << -2.0 * q.y, 2.0 * q.z, -2.0 * q.w, 2.0 * q.x,  //
+        2.0 * q.x, 2.0 * q.w, 2.0 * q.z, 2.0 * q.y,      ///
+        0.0, -4.0 * q.x, -4.0 * q.y, 0.0;
+    Eigen::Vector4d del_f = Jg.transpose() * fg;
+    std::cerr << "fg: " << fg.transpose() << std::endl;
+    std::cerr << "del_f: " << del_f.transpose() << std::endl;
+    Quaternion dq_a(del_f.w(), del_f.x(), del_f.y(), del_f.z());
+    dq_a *= 1.0 / del_f.norm();
 
-  orientation_ = q_w;
+    constexpr double kNoiseLevel{1e-1};
+    const double kBeta = kNoiseLevel * std::sqrt(3.0 / 4.0);
+    Quaternion dq_est = dq_w + dq_a * (-kBeta);
+    orientation_ = orientation_ + (dq_est * dt);
 
-  std::cerr << orientation_.w << " " << q_w.w << std::endl;
+    // orientation_ = orientation_ + (dq_w * dt);
+    // orientation_.x += (-kBeta * dq_a.x * dt);
+    // orientation_.y += (-kBeta * dq_a.y * dt);
+  } else {
+    orientation_ = orientation_ + (dq_w * dt);
+  }
+  orientation_.normalize();
 
   prev_time_ = imu.time;
 }
