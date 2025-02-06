@@ -46,12 +46,9 @@ struct Quaternion {
     Quaternion res(w + rhs.w, x + rhs.x, y + rhs.y, z + rhs.z);
     return res;
   }
-  Quaternion& operator+=(const Quaternion& rhs) {
-    w += rhs.w;
-    x += rhs.x;
-    y += rhs.y;
-    z += rhs.z;
-    return *this;
+  Quaternion operator-(const Quaternion& rhs) const {
+    Quaternion res(w - rhs.w, x - rhs.x, y - rhs.y, z - rhs.z);
+    return res;
   }
   Quaternion operator*(const Quaternion& rhs) const {
     Quaternion res;
@@ -64,6 +61,20 @@ struct Quaternion {
   Quaternion operator*(const double scalar) const {
     Quaternion res(w * scalar, x * scalar, y * scalar, z * scalar);
     return res;
+  }
+  Quaternion& operator+=(const Quaternion& rhs) {
+    w += rhs.w;
+    x += rhs.x;
+    y += rhs.y;
+    z += rhs.z;
+    return *this;
+  }
+  Quaternion& operator-=(const Quaternion& rhs) {
+    w -= rhs.w;
+    x -= rhs.x;
+    y -= rhs.y;
+    z -= rhs.z;
+    return *this;
   }
   Quaternion& operator*=(const Quaternion& rhs) {
     double w_new = w * rhs.w - x * rhs.x - y * rhs.y - z * rhs.z;

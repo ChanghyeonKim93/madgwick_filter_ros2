@@ -14,10 +14,10 @@ void MadgwickFilter::Update(const bridge::Imu& bridge_imu) {
   const auto imu = ConvertFromBridge(bridge_imu);
 
   if (!condition_.is_bias_initialized) {
+    constexpr int kMinNumImuData{50};
     imu_queue_.push_back(imu);
-    if (imu_queue_.size() > 100) {
+    if (imu_queue_.size() > kMinNumImuData)
       condition_.is_bias_initialized = InitializeBias();
-    }
     return;
   }
 
@@ -38,50 +38,45 @@ void MadgwickFilter::Update(const bridge::Imu& bridge_imu) {
   Quaternion dq_w;
   dq_w = (orientation_ * o_w) * 0.5;
 
-  Quaternion q_w;
-  q_w = (orientation_ + (dq_w * dt));
-  q_w.normalize();
-
   // Compensate orientation using linear acceleration only when the norm
   // of acceleration is near the gravity.
-  const auto am = imu.linear_acceleration - acc_bias_;
+  Eigen::Vector3d am = imu.linear_acceleration - acc_bias_;
   bool update_by_acceleration = false;
-  if (std::abs(am.norm() - kGravitationalAcceleration) < 1e-1)
+  if (std::abs(am.norm() - kGravitationalAcceleration) < 1e-2)
     update_by_acceleration = true;
 
+  const auto q = orientation_;
   if (update_by_acceleration) {
-    std::cerr << "UPDATE Acc\n";
-    Quaternion q_a;
-    q_a.w = 0.0;
-    q_a.x = am.x();
-    q_a.y = am.y();
-    q_a.z = am.z();
+    std::cerr << "Update By Acc.\n";
 
-    const auto& q = orientation_;
-    Vec3 fg;
-    fg(0) = 2.0 * (q.x * q.z - q.w * q.y) - am.x() / 9.81;
-    fg(1) = 2.0 * (q.w * q.x + q.y * q.z) - am.y() / 9.81;
-    fg(2) = 2.0 * (0.5 - q.x * q.x - q.y * q.y) - am.z() / 9.81;
+    Vec3 r_g;
+    r_g(0) = 2.0 * (q.x * q.z - q.w * q.y) - am.x() / 9.81;
+    r_g(1) = 2.0 * (q.w * q.x + q.y * q.z) - am.y() / 9.81;
+    r_g(2) = 2.0 * (0.5 - q.x * q.x - q.y * q.y) - am.z() / 9.81;
     Eigen::Matrix<double, 3, 4> Jg;
-    Jg << -2.0 * q.y, 2.0 * q.z, -2.0 * q.w, 2.0 * q.x,  //
-        2.0 * q.x, 2.0 * q.w, 2.0 * q.z, 2.0 * q.y,      ///
-        0.0, -4.0 * q.x, -4.0 * q.y, 0.0;
-    Eigen::Vector4d del_f = Jg.transpose() * fg;
-    std::cerr << "fg: " << fg.transpose() << std::endl;
-    std::cerr << "del_f: " << del_f.transpose() << std::endl;
-    Quaternion dq_a(del_f.w(), del_f.x(), del_f.y(), del_f.z());
-    dq_a *= 1.0 / del_f.norm();
+    Jg(0, 0) = -2.0 * q.y;
+    Jg(0, 1) = 2.0 * q.z;
+    Jg(0, 2) = -2.0 * q.w;
+    Jg(0, 3) = 2.0 * q.x;
+    Jg(1, 0) = 2.0 * q.x;
+    Jg(1, 1) = 2.0 * q.w;
+    Jg(1, 2) = 2.0 * q.z;
+    Jg(1, 3) = 2.0 * q.y;
+    Jg(2, 0) = 0.0;
+    Jg(2, 1) = -4.0 * q.x;
+    Jg(2, 2) = -4.0 * q.y;
+    Jg(2, 3) = 0.0;
 
-    constexpr double kNoiseLevel{1e-1};
-    const double kBeta = kNoiseLevel * std::sqrt(3.0 / 4.0);
-    Quaternion dq_est = dq_w + dq_a * (-kBeta);
-    orientation_ = orientation_ + (dq_est * dt);
+    Eigen::Vector4d del_f = Jg.transpose() * r_g;
+    del_f /= del_f.norm();
 
-    // orientation_ = orientation_ + (dq_w * dt);
-    // orientation_.x += (-kBeta * dq_a.x * dt);
-    // orientation_.y += (-kBeta * dq_a.y * dt);
+    const double kBeta = 0.2;
+    Quaternion dq_a(-kBeta * del_f(0), -kBeta * del_f(1), -kBeta * del_f(2),
+                    -kBeta * del_f(3));
+    Quaternion dq_est = dq_w + dq_a;
+    orientation_ = q + (dq_est * dt);
   } else {
-    orientation_ = orientation_ + (dq_w * dt);
+    orientation_ = q + (dq_w * dt);
   }
   orientation_.normalize();
 
@@ -104,8 +99,6 @@ bool MadgwickFilter::InitializeBias() {
     gyro_bias += imu.angular_velocity;
   }
   gyro_bias /= static_cast<double>(imu_queue_.size());
-  std::cerr << "initialization OK! gyro bias: " << gyro_bias.transpose()
-            << "\n";
   gyro_bias_ = gyro_bias;
   return true;
 }
