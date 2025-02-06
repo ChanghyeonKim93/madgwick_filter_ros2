@@ -112,6 +112,8 @@ class MadgwickFilter {
 
   void Update(const bridge::Imu& imu_data);
 
+  void UpdateByMagnetometer(const bridge::Vec3& magnetic_field);
+
   bridge::Orientation GetOrientation() const;
 
  private:
@@ -119,19 +121,20 @@ class MadgwickFilter {
   Quaternion ComputeGradientByAngularVelocity(const Vec3& angular_velocity);
   Quaternion ComputeGradientlByLinearAcceleration(
       const Vec3& linear_acceleration);
+  Quaternion ComputeGradientlByMagnetometer(const Vec3& magnetic_field);
 
   Imu ConvertFromBridge(const bridge::Imu& bridge_imu);
 
-  std::deque<Imu> imu_queue_;
-
   const Parameters parameters_;
   Condition condition_;
+  std::deque<Imu> imu_queue_;
+  Quaternion orientation_;
 
   Vec3 acc_bias_{Vec3::Zero()};
   Vec3 gyro_bias_{Vec3::Zero()};
+  Vec3 mag_bias_{Vec3::Zero()};
 
   double prev_time_{0.0};
-  Quaternion orientation_;
 };
 
 }  // namespace madgwick_filter

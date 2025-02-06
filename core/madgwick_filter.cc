@@ -10,6 +10,7 @@ MadgwickFilter::MadgwickFilter(const Parameters& parameters)
 MadgwickFilter::~MadgwickFilter() {}
 
 void MadgwickFilter::Update(const bridge::Imu& bridge_imu) {
+  // TODO(@): make below as parameters
   constexpr double kGravitationalAcceleration{9.81};
   constexpr double kBeta{0.4};
   constexpr double kGravAccDiffThreshold{1e-1};
@@ -24,32 +25,41 @@ void MadgwickFilter::Update(const bridge::Imu& bridge_imu) {
     return;
   }
 
-  // Propagation via angular velocity
   if (prev_time_ == 0.0) {
     prev_time_ = imu.time;
     return;
   }
 
   const double dt = imu.time - prev_time_;
+
   const Quaternion dq_w =
       ComputeGradientByAngularVelocity(imu.angular_velocity - gyro_bias_);
 
-  // Compensate orientation using linear acceleration only when the norm
-  // of acceleration is near the gravity.
-  Eigen::Vector3d am = imu.linear_acceleration - acc_bias_;
-  const bool update_by_acceleration =
-      std::abs(am.norm() - kGravitationalAcceleration) < kGravAccDiffThreshold;
+  Eigen::Vector3d unbiased_acc = imu.linear_acceleration - acc_bias_;
+  const bool update_by_acc =
+      std::abs(unbiased_acc.norm() - kGravitationalAcceleration) <
+      kGravAccDiffThreshold;
 
   Quaternion dq = dq_w;
-  if (update_by_acceleration) {
-    std::cerr << "Update By Acc.\n";
-    const Quaternion dq_a = ComputeGradientlByLinearAcceleration(am);
+  if (update_by_acc) {
+    const Quaternion dq_a = ComputeGradientlByLinearAcceleration(unbiased_acc);
     dq = dq_w + dq_a * (-kBeta);
   }
   orientation_ += dq * dt;
   orientation_.normalize();
 
   prev_time_ = imu.time;
+}
+
+void MadgwickFilter::UpdateByMagnetometer(const bridge::Vec3& magnetic_field) {
+  constexpr double kBeta{0.001};  // need to be small number
+  Vec3 m(magnetic_field.x, magnetic_field.y, magnetic_field.z);
+  m -= mag_bias_;
+  const Quaternion dq_m = ComputeGradientlByMagnetometer(m);
+  Quaternion dq = dq_m * (-kBeta);
+
+  orientation_ += dq;
+  orientation_.normalize();
 }
 
 bridge::Orientation MadgwickFilter::GetOrientation() const {
@@ -90,6 +100,46 @@ Quaternion MadgwickFilter::ComputeGradientlByLinearAcceleration(
   dq_a_vec.normalize();
   Quaternion dq_a(dq_a_vec(0), dq_a_vec(1), dq_a_vec(2), dq_a_vec(3));
   return dq_a;
+}
+
+Quaternion MadgwickFilter::ComputeGradientlByMagnetometer(
+    const Vec3& magnetic_field) {
+  // TODO(@): how to know the vector b?
+  auto m = magnetic_field;
+  Vec3 b{Vec3::Zero()};  // Earth magnetic field at this latitude.
+  b.x() = std::sqrt(m.x() * m.x() + m.y() * m.y());
+  b.z() = m.z();
+  b.normalize();
+  m.normalize();
+  const auto q = orientation_;
+  const auto qw = q.w, qx = q.x, qy = q.y, qz = q.z;
+  Mat3x4 jacobian{Mat3x4::Zero()};
+  Vec3 residual{Vec3::Zero()};
+  residual(0) = 2 * b.x() * (0.5 - qy * qy - qz * qz) +
+                2 * b.z() * (qx * qz - qw * qy) - m.x();
+  residual(1) =
+      2 * b.x() * (qx * qy - qw * qz) + 2 * b.z() * (qw * qx + qy * qz) - m.y();
+  residual(2) = 2 * b.x() * (qw * qy + qx * qz) +
+                2 * b.z() * (0.5 - qx * qx - qy * qy) - m.z();
+
+  jacobian(0, 0) = -2 * b.z() * qy;
+  jacobian(0, 1) = 2 * b.z() * qz;
+  jacobian(0, 2) = -4 * b.x() * qy - 2 * b.z() * qw;
+  jacobian(0, 3) = -4 * b.x() * qz + 2 * b.z() * qx;
+
+  jacobian(1, 0) = -2 * b.x() * qz + 2 * b.z() * qx;
+  jacobian(1, 1) = 2 * b.x() * qy + 2 * b.z() * qw;
+  jacobian(1, 2) = 2 * b.x() * qx + 2 * b.z() * qz;
+  jacobian(1, 3) = -2 * b.x() * qw + 2 * b.z() * qy;
+
+  jacobian(2, 0) = 2 * b.x() * qy;
+  jacobian(2, 1) = 2 * b.x() * qz - 4 * b.z() * qx;
+  jacobian(2, 2) = 2 * b.x() * qw - 4 * b.z() * qy;
+  jacobian(2, 3) = 2 * b.x() * qx;
+  Vec4 dq_m_vec = jacobian.transpose() * residual;
+  dq_m_vec.normalize();
+  Quaternion dq_m(dq_m_vec(0), dq_m_vec(1), dq_m_vec(2), dq_m_vec(3));
+  return dq_m;
 }
 
 Imu MadgwickFilter::ConvertFromBridge(const bridge::Imu& bridge_imu) {
