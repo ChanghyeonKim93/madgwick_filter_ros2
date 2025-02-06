@@ -55,7 +55,12 @@ void MadgwickFilter::UpdateByMagnetometer(const bridge::Vec3& magnetic_field) {
   constexpr double kBeta{0.001};  // need to be small number
   Vec3 m(magnetic_field.x, magnetic_field.y, magnetic_field.z);
   m -= mag_bias_;
-  const Quaternion dq_m = ComputeGradientlByMagnetometer(m);
+
+  // Rotate magnetic field
+  Quaternion qm(0.0, m.x(), m.y(), m.z());
+  const auto qh = orientation_ * qm * orientation_.inverse();
+  Vec3 h(qh.x, qh.y, qh.z);
+  const Quaternion dq_m = ComputeGradientlByMagnetometer(h);
   Quaternion dq = dq_m * (-kBeta);
 
   orientation_ += dq;

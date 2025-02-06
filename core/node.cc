@@ -84,7 +84,7 @@ class MadgwickFilterNode : public rclcpp::Node {
     mag_data.x = msg->magnetic_field.x;
     mag_data.y = msg->magnetic_field.y;
     mag_data.z = msg->magnetic_field.z;
-    filter_->UpdateByMagnetometer(mag_data);
+    // filter_->UpdateByMagnetometer(mag_data);
   }
 
   void CallbackPublisherTimer() {
