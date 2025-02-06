@@ -11,22 +11,18 @@ MadgwickFilter::~MadgwickFilter() {}
 
 void MadgwickFilter::Update(const bridge::Imu& bridge_imu) {
   constexpr double kGravitationalAcceleration{9.81};
+  constexpr double kBeta{0.4};
+  constexpr double kGravAccDiffThreshold{1e-1};
+
   const auto imu = ConvertFromBridge(bridge_imu);
 
   if (!condition_.is_bias_initialized) {
     constexpr int kMinNumImuData{50};
     imu_queue_.push_back(imu);
     if (imu_queue_.size() > kMinNumImuData)
-      condition_.is_bias_initialized = InitializeBias();
+      condition_.is_bias_initialized = InitializeGyroBias();
     return;
   }
-
-  const auto wm = imu.angular_velocity - gyro_bias_;
-  Quaternion o_w;
-  o_w.w = 0.0;
-  o_w.x = wm.x();
-  o_w.y = wm.y();
-  o_w.z = wm.z();
 
   // Propagation via angular velocity
   if (prev_time_ == 0.0) {
@@ -35,72 +31,65 @@ void MadgwickFilter::Update(const bridge::Imu& bridge_imu) {
   }
 
   const double dt = imu.time - prev_time_;
-  Quaternion dq_w;
-  dq_w = (orientation_ * o_w) * 0.5;
+  const Quaternion dq_w =
+      ComputeGradientByAngularVelocity(imu.angular_velocity - gyro_bias_);
 
   // Compensate orientation using linear acceleration only when the norm
   // of acceleration is near the gravity.
   Eigen::Vector3d am = imu.linear_acceleration - acc_bias_;
-  bool update_by_acceleration = false;
-  if (std::abs(am.norm() - kGravitationalAcceleration) < 1e-2)
-    update_by_acceleration = true;
+  const bool update_by_acceleration =
+      std::abs(am.norm() - kGravitationalAcceleration) < kGravAccDiffThreshold;
 
-  const auto q = orientation_;
+  Quaternion dq = dq_w;
   if (update_by_acceleration) {
     std::cerr << "Update By Acc.\n";
-
-    Vec3 r_g;
-    r_g(0) = 2.0 * (q.x * q.z - q.w * q.y) - am.x() / 9.81;
-    r_g(1) = 2.0 * (q.w * q.x + q.y * q.z) - am.y() / 9.81;
-    r_g(2) = 2.0 * (0.5 - q.x * q.x - q.y * q.y) - am.z() / 9.81;
-    Eigen::Matrix<double, 3, 4> Jg;
-    Jg(0, 0) = -2.0 * q.y;
-    Jg(0, 1) = 2.0 * q.z;
-    Jg(0, 2) = -2.0 * q.w;
-    Jg(0, 3) = 2.0 * q.x;
-    Jg(1, 0) = 2.0 * q.x;
-    Jg(1, 1) = 2.0 * q.w;
-    Jg(1, 2) = 2.0 * q.z;
-    Jg(1, 3) = 2.0 * q.y;
-    Jg(2, 0) = 0.0;
-    Jg(2, 1) = -4.0 * q.x;
-    Jg(2, 2) = -4.0 * q.y;
-    Jg(2, 3) = 0.0;
-
-    Eigen::Vector4d del_f = Jg.transpose() * r_g;
-    del_f /= del_f.norm();
-
-    const double kBeta = 0.2;
-    Quaternion dq_a(-kBeta * del_f(0), -kBeta * del_f(1), -kBeta * del_f(2),
-                    -kBeta * del_f(3));
-    Quaternion dq_est = dq_w + dq_a;
-    orientation_ = q + (dq_est * dt);
-  } else {
-    orientation_ = q + (dq_w * dt);
+    const Quaternion dq_a = ComputeGradientlByLinearAcceleration(am);
+    dq = dq_w + dq_a * (-kBeta);
   }
+  orientation_ += dq * dt;
   orientation_.normalize();
 
   prev_time_ = imu.time;
 }
 
 bridge::Orientation MadgwickFilter::GetOrientation() const {
-  bridge::Orientation bridge_orientation;
-  bridge_orientation.w = orientation_.w;
-  bridge_orientation.x = orientation_.x;
-  bridge_orientation.y = orientation_.y;
-  bridge_orientation.z = orientation_.z;
+  const auto& q = orientation_;
+  bridge::Orientation bridge_orientation{q.w, q.x, q.y, q.z};
   return bridge_orientation;
 }
 
-bool MadgwickFilter::InitializeBias() {
+bool MadgwickFilter::InitializeGyroBias() {
   // TODO(@): estimate acc bias
-  Vec3 gyro_bias{Vec3::Zero()};
-  for (const auto& imu : imu_queue_) {
-    gyro_bias += imu.angular_velocity;
-  }
-  gyro_bias /= static_cast<double>(imu_queue_.size());
-  gyro_bias_ = gyro_bias;
+  gyro_bias_.setZero();
+  for (const auto& imu : imu_queue_) gyro_bias_ += imu.angular_velocity;
+  gyro_bias_ /= static_cast<double>(imu_queue_.size());
   return true;
+}
+
+Quaternion MadgwickFilter::ComputeGradientByAngularVelocity(
+    const Vec3& angular_velocity) {
+  const auto wm = angular_velocity - gyro_bias_;
+  const Quaternion o_w(0.0, wm.x(), wm.y(), wm.z());
+  const Quaternion dq_w = (orientation_ * o_w) * 0.5;
+  return dq_w;
+}
+
+Quaternion MadgwickFilter::ComputeGradientlByLinearAcceleration(
+    const Vec3& linear_acceleration) {
+  const auto q = orientation_;
+  Mat3x4 jacobian{Mat3x4::Zero()};
+  Vec3 residual{Vec3::Zero()};
+  residual(0) = 2.0 * (q.x * q.z - q.w * q.y) - linear_acceleration.x() / 9.81;
+  residual(1) = 2.0 * (q.w * q.x + q.y * q.z) - linear_acceleration.y() / 9.81;
+  residual(2) =
+      2.0 * (0.5 - q.x * q.x - q.y * q.y) - linear_acceleration.z() / 9.81;
+  jacobian.row(0) << -2.0 * q.y, 2.0 * q.z, -2.0 * q.w, 2.0 * q.x;
+  jacobian.row(1) << 2.0 * q.x, 2.0 * q.w, 2.0 * q.z, 2.0 * q.y;
+  jacobian.row(2) << 0.0, -4.0 * q.x, -4.0 * q.y, 0.0;
+  Vec4 dq_a_vec = jacobian.transpose() * residual;
+  dq_a_vec.normalize();
+  Quaternion dq_a(dq_a_vec(0), dq_a_vec(1), dq_a_vec(2), dq_a_vec(3));
+  return dq_a;
 }
 
 Imu MadgwickFilter::ConvertFromBridge(const bridge::Imu& bridge_imu) {

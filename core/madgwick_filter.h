@@ -9,8 +9,10 @@
 
 namespace madgwick_filter {
 
-using Vec3 = Eigen::Vector3d;
-using Mat3x3 = Eigen::Matrix3d;
+using Vec3 = Eigen::Matrix<double, 3, 1>;
+using Vec4 = Eigen::Matrix<double, 4, 1>;
+using Mat3x3 = Eigen::Matrix<double, 3, 3>;
+using Mat3x4 = Eigen::Matrix<double, 3, 4>;
 using Orientation = Eigen::Quaterniond;
 
 struct Quaternion {
@@ -63,17 +65,11 @@ struct Quaternion {
     return res;
   }
   Quaternion& operator+=(const Quaternion& rhs) {
-    w += rhs.w;
-    x += rhs.x;
-    y += rhs.y;
-    z += rhs.z;
+    *this = *this + rhs;
     return *this;
   }
   Quaternion& operator-=(const Quaternion& rhs) {
-    w -= rhs.w;
-    x -= rhs.x;
-    y -= rhs.y;
-    z -= rhs.z;
+    *this = *this - rhs;
     return *this;
   }
   Quaternion& operator*=(const Quaternion& rhs) {
@@ -119,7 +115,11 @@ class MadgwickFilter {
   bridge::Orientation GetOrientation() const;
 
  private:
-  bool InitializeBias();
+  bool InitializeGyroBias();
+  Quaternion ComputeGradientByAngularVelocity(const Vec3& angular_velocity);
+  Quaternion ComputeGradientlByLinearAcceleration(
+      const Vec3& linear_acceleration);
+
   Imu ConvertFromBridge(const bridge::Imu& bridge_imu);
 
   std::deque<Imu> imu_queue_;
