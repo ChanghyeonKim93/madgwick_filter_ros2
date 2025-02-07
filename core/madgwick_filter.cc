@@ -32,8 +32,8 @@ void MadgwickFilter::Update(const bridge::Imu& bridge_imu) {
 
   const double dt = imu.time - prev_time_;
 
-  const Quaternion dq_w =
-      ComputeGradientByAngularVelocity(imu.angular_velocity - gyro_bias_);
+  const Vec3 unbiased_gyro = imu.angular_velocity - gyro_bias_;
+  const Quaternion dq_w = ComputeGradientByAngularVelocity(unbiased_gyro);
 
   Eigen::Vector3d unbiased_acc = imu.linear_acceleration - acc_bias_;
   const bool update_by_acc =
@@ -52,15 +52,13 @@ void MadgwickFilter::Update(const bridge::Imu& bridge_imu) {
 }
 
 void MadgwickFilter::UpdateByMagnetometer(const bridge::Vec3& magnetic_field) {
-  constexpr double kBeta{0.001};  // need to be small number
+  constexpr double kBeta{0.005};  // need to be small number
   Vec3 m(magnetic_field.x, magnetic_field.y, magnetic_field.z);
-  m -= mag_bias_;
+  const Vec3 unbiased_magnetic_field = m - mag_bias_;
 
   // Rotate magnetic field
-  Quaternion qm(0.0, m.x(), m.y(), m.z());
-  const auto qh = orientation_ * qm * orientation_.inverse();
-  Vec3 h(qh.x, qh.y, qh.z);
-  const Quaternion dq_m = ComputeGradientlByMagnetometer(h);
+  const Quaternion dq_m =
+      ComputeGradientlByMagnetometer(unbiased_magnetic_field);
   Quaternion dq = dq_m * (-kBeta);
 
   orientation_ += dq;
@@ -83,7 +81,7 @@ bool MadgwickFilter::InitializeGyroBias() {
 
 Quaternion MadgwickFilter::ComputeGradientByAngularVelocity(
     const Vec3& angular_velocity) {
-  const auto wm = angular_velocity - gyro_bias_;
+  const auto wm = angular_velocity;
   const Quaternion o_w(0.0, wm.x(), wm.y(), wm.z());
   const Quaternion dq_w = (orientation_ * o_w) * 0.5;
   return dq_w;
@@ -111,9 +109,13 @@ Quaternion MadgwickFilter::ComputeGradientlByMagnetometer(
     const Vec3& magnetic_field) {
   // TODO(@): how to know the vector b?
   auto m = magnetic_field;
+
+  Quaternion o_m(0.0, m.x(), m.y(), m.z());
+  const auto h = orientation_ * o_m * orientation_.inverse();
+
   Vec3 b{Vec3::Zero()};  // Earth magnetic field at this latitude.
-  b.x() = std::sqrt(m.x() * m.x() + m.y() * m.y());
-  b.z() = m.z();
+  b.x() = std::sqrt(h.x * h.x + h.y * h.y);
+  b.z() = h.z;
   b.normalize();
   m.normalize();
   const auto q = orientation_;
